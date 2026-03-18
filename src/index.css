@@ -14,7 +14,7 @@
   }
   
   .gradient-text {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400 font-extrabold;
+    @apply text-indigo-400 font-extrabold;
   }
 }
 

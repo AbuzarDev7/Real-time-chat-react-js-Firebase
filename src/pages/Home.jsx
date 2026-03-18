@@ -24,7 +24,7 @@ const Home = () => {
       return;
     }
 
-    // Set user online
+    
     const myUserRef = ref(database, `users/${currentUser.uid}`);
     set(myUserRef, {
       uid: currentUser.uid,
@@ -34,7 +34,7 @@ const Home = () => {
       lastSeen: serverTimestamp()
     });
 
-    // Handle disconnect (set offline)
+    
     const onDisconnectRef = onDisconnect(myUserRef);
     onDisconnectRef.update({
       online: false,
