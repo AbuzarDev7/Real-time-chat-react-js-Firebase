@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User, Mail, Lock, Loader2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { createUserWithEmailAndPassword, updateProfile, signOut } from 'firebase/auth';
 import { auth, database } from '../firebaseconfig/firebaseConfig';
 import { ref, set, serverTimestamp } from 'firebase/database';
 import backgroundImage from '../assets/images/background.png';
@@ -32,12 +32,15 @@ const Signup = () => {
         uid: user.uid,
         displayName: formData.username,
         email: formData.email,
-        online: true,
+        online: false,
         createdAt: serverTimestamp(),
         lastSeen: serverTimestamp(),
       });
 
-      navigate('/chat');
+      // 4. Sign out user so they are redirected to login page
+      await signOut(auth);
+
+      navigate('/login');
 
     } catch (err) {
       setError(err.message);
