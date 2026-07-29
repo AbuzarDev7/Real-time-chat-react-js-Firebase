@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, LogOut, Search, User, Users, Send, Image, Smile, Phone, Video, MoreVertical } from 'lucide-react';
+import { ArrowLeft, LogOut, Search, User, Users, Send, Image, Smile, Phone, Video, MoreVertical, Loader2 } from 'lucide-react';
 import { auth, database } from '../firebaseconfig/firebaseConfig';
-import { signOut } from 'firebase/auth';
+import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { ref, onValue, push, set, serverTimestamp, onDisconnect, update } from 'firebase/database';
 import avatarIcon from '../assets/images/avatar_icon.png';
@@ -10,40 +10,63 @@ const Home = () => {
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [chats, setChats] = useState({});
+  const [searchQuery, setSearchQuery] = useState('');
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [remoteTyping, setRemoteTyping] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
+  const [currentUser, setCurrentUser] = useState(auth.currentUser);
+  const [authLoading, setAuthLoading] = useState(true);
   const scrollRef = React.useRef(null);
   const navigate = useNavigate();
-  const currentUser = auth.currentUser;
+
+  // 1. Auth Listener to handle page refreshes cleanly
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+    });
+    return () => unsubscribeAuth();
+  }, []);
 
   useEffect(() => {
-    if (!currentUser) {
+    if (!authLoading && !currentUser) {
       navigate('/login');
-      return;
     }
+  }, [currentUser, authLoading, navigate]);
 
-    
-    const myUserRef = ref(database, `users/${currentUser.uid}`);
-    set(myUserRef, {
-      uid: currentUser.uid,
-      displayName: currentUser.displayName,
-      email: currentUser.email,
-      online: true,
-      lastSeen: serverTimestamp()
+  // 2. Realtime Database Presence Management (.info/connected)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const userStatusRef = ref(database, `users/${currentUser.uid}`);
+    const connectedRef = ref(database, '.info/connected');
+
+    // Handle online / offline status server-side
+    const unsubscribeConnected = onValue(connectedRef, (snap) => {
+      if (snap.val() === true) {
+        // Register onDisconnect hook on Firebase server
+        const userOnDisconnect = onDisconnect(userStatusRef);
+        userOnDisconnect.update({
+          online: false,
+          lastSeen: serverTimestamp()
+        });
+
+        // Set status online on connect
+        update(userStatusRef, {
+          uid: currentUser.uid,
+          displayName: currentUser.displayName || currentUser.email?.split('@')[0] || 'User',
+          email: currentUser.email,
+          online: true,
+          lastSeen: serverTimestamp()
+        });
+      }
     });
 
-    
-    const onDisconnectRef = onDisconnect(myUserRef);
-    onDisconnectRef.update({
-      online: false,
-      lastSeen: serverTimestamp()
-    });
-
-    // Fetch users from Realtime Database
+    // Fetch users list
     const usersRef = ref(database, 'users');
-    const unsubscribe = onValue(usersRef, (snapshot) => {
+    const unsubscribeUsers = onValue(usersRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const usersList = Object.values(data).filter(user => user.uid !== currentUser.uid);
@@ -53,18 +76,51 @@ const Home = () => {
       }
     });
 
+    // Fetch all chats node for message counts
+    const chatsRef = ref(database, 'chats');
+    const unsubscribeChats = onValue(chatsRef, (snapshot) => {
+      setChats(snapshot.val() || {});
+    });
+
     return () => {
-      unsubscribe();
-      // Set offline on component unmount
-      set(myUserRef, {
-        uid: currentUser.uid,
-        displayName: currentUser.displayName,
-        email: currentUser.email,
-        online: false,
-        lastSeen: serverTimestamp()
-      });
+      unsubscribeConnected();
+      unsubscribeUsers();
+      unsubscribeChats();
     };
-  }, [currentUser, navigate]);
+  }, [currentUser]);
+
+  // Calculate unread message count for a specific user chat (only messages sent by target user that are unread)
+  const getUnreadCountForUser = (targetUid) => {
+    if (!currentUser || !chats) return 0;
+    const chatId = currentUser.uid > targetUid 
+      ? `${currentUser.uid}_${targetUid}` 
+      : `${targetUid}_${currentUser.uid}`;
+    const userMessages = chats[chatId]?.messages;
+    if (!userMessages) return 0;
+    
+    return Object.values(userMessages).filter(
+      (msg) => msg.senderId === targetUid && msg.read !== true
+    ).length;
+  };
+
+  // Filter and sort users (Online users top)
+  const filteredAndSortedUsers = users
+    .filter((user) => {
+      const query = searchQuery.toLowerCase().trim();
+      if (!query) return true;
+      const nameMatch = user.displayName?.toLowerCase().includes(query);
+      const emailMatch = user.email?.toLowerCase().includes(query);
+      return nameMatch || emailMatch;
+    })
+    .sort((a, b) => {
+      // Online users first
+      if (a.online !== b.online) {
+        return a.online ? -1 : 1;
+      }
+      const nameA = a.displayName || '';
+      const nameB = b.displayName || '';
+      return nameA.localeCompare(nameB);
+    });
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -86,6 +142,13 @@ const Home = () => {
       if (data) {
         const msgList = Object.values(data);
         setMessages(msgList);
+
+        // Auto-mark unread messages sent by selectedUser as read (Seen)
+        Object.entries(data).forEach(([msgId, msg]) => {
+          if (msg.senderId === selectedUser.uid && msg.read !== true) {
+            update(ref(database, `chats/${chatId}/messages/${msgId}`), { read: true });
+          }
+        });
       } else {
         setMessages([]);
       }
@@ -106,7 +169,7 @@ const Home = () => {
   // Handle local typing indicator
   useEffect(() => {
     if (!selectedUser || !currentUser || !inputText.trim()) {
-      if (isTyping) {
+      if (isTyping && selectedUser && currentUser) {
         const chatId = currentUser.uid > selectedUser.uid 
           ? `${currentUser.uid}_${selectedUser.uid}` 
           : `${selectedUser.uid}_${currentUser.uid}`;
@@ -134,6 +197,13 @@ const Home = () => {
   }, [inputText, selectedUser, currentUser, isTyping]);
 
   const handleLogout = async () => {
+    if (currentUser) {
+      const userStatusRef = ref(database, `users/${currentUser.uid}`);
+      await update(userStatusRef, {
+        online: false,
+        lastSeen: serverTimestamp()
+      });
+    }
     await signOut(auth);
     navigate('/login');
   };
@@ -154,7 +224,8 @@ const Home = () => {
       imageUrl: imageUrl,
       senderId: currentUser.uid,
       createdAt: serverTimestamp(),
-      type: imageUrl ? 'image' : 'text'
+      type: imageUrl ? 'image' : 'text',
+      read: false
     });
 
     setInputText('');
@@ -184,6 +255,15 @@ const Home = () => {
     }
   };
 
+  if (authLoading) {
+    return (
+      <div className="flex h-screen w-full bg-[#0f172a] items-center justify-center">
+        <Loader2 className="animate-spin text-indigo-500" size={40} />
+      </div>
+    );
+  }
+
+  if (!currentUser) return null;
 
   return (
     <div className="flex h-screen w-full bg-[#0f172a] overflow-hidden relative">
@@ -217,36 +297,56 @@ const Home = () => {
             <input 
               type="text" 
               placeholder="Search users..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="bg-transparent border-none p-3 text-slate-100 w-full text-sm outline-none"
             />
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-3 space-y-1">
-          {users.map((user) => (
-            <div 
-              key={user.uid}
-              onClick={() => {
-                setSelectedUser(user);
-                setShowSidebar(false);
-              }}
-              className={`flex items-center p-3 rounded-xl cursor-pointer transition-all ${
-                selectedUser?.uid === user.uid ? 'bg-indigo-500/20 border-indigo-500/30' : 'hover:bg-white/5'
-              }`}
-            >
-              <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center mr-4 border border-white/10">
-                <img src={avatarIcon} alt={user.displayName} className="w-8 h-8 opacity-70" />
-              </div>
-              <div className="flex-1">
-                <div className="font-semibold text-slate-100">{user.displayName}</div>
-                <div className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
-                  <span className={`w-2 h-2 rounded-full ${user.online ? 'bg-emerald-500' : 'bg-slate-500'}`}></span>
-                  {user.online ? 'Online' : 'Offline'}
+          {filteredAndSortedUsers.map((user) => {
+            const unreadCount = getUnreadCountForUser(user.uid);
+            return (
+              <div 
+                key={user.uid}
+                onClick={() => {
+                  setSelectedUser(user);
+                  setShowSidebar(false);
+                }}
+                className={`flex items-center p-3 rounded-xl cursor-pointer transition-all ${
+                  selectedUser?.uid === user.uid ? 'bg-indigo-500/20 border-indigo-500/30' : 'hover:bg-white/5'
+                }`}
+              >
+                <div className="relative mr-4 shrink-0">
+                  <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center border border-white/10">
+                    <img src={avatarIcon} alt={user.displayName} className="w-8 h-8 opacity-70" />
+                  </div>
+                  <span className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-[#0f172a] ${
+                    user.online ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.8)]' : 'bg-slate-500'
+                  }`}></span>
+                </div>
+                
+                <div className="flex-1 overflow-hidden">
+                  <div className="flex items-center justify-between">
+                    <div className={`font-semibold truncate ${unreadCount > 0 ? 'text-white font-bold' : 'text-slate-100'}`}>
+                      {user.displayName}
+                    </div>
+                    {unreadCount > 0 && (
+                      <span className="text-[11px] font-bold bg-indigo-500 text-white px-2 py-0.5 rounded-full shrink-0 ml-2 shadow-md shadow-indigo-500/30">
+                        {unreadCount}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
+                    <span className={`w-2 h-2 rounded-full ${user.online ? 'bg-emerald-500' : 'bg-slate-500'}`}></span>
+                    {user.online ? 'Online' : 'Offline'}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-          {users.length === 0 && (
+            );
+          })}
+          {filteredAndSortedUsers.length === 0 && (
             <div className="text-center py-20 text-slate-500 italic text-sm">No users found</div>
           )}
         </div>
@@ -299,8 +399,15 @@ const Home = () => {
                     )}
                     {msg.text && <p>{msg.text}</p>}
                   </div>
-                  <div className="text-[10px] text-slate-500 mt-1.5 px-1 font-medium">
-                    {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'sending...'}
+                  <div className="text-[10px] text-slate-500 mt-1.5 px-1 font-medium flex items-center gap-1">
+                    <span>
+                      {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'sending...'}
+                    </span>
+                    {msg.senderId === currentUser.uid && (
+                      <span className={msg.read ? 'text-indigo-400 font-semibold' : 'text-slate-500'}>
+                        {msg.read ? '• Seen' : '• Sent'}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Lock, Loader2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, setPersistence, browserSessionPersistence } from 'firebase/auth';
 import { auth } from '../firebaseconfig/firebaseConfig';
 import backgroundImage from '../assets/images/background.png';
 import logoIcon from '../assets/images/logo_icon.png';
@@ -18,6 +18,7 @@ const Login = () => {
     setError(null);
 
     try {
+      await setPersistence(auth, browserSessionPersistence);
       await signInWithEmailAndPassword(auth, formData.email, formData.password);
       navigate('/chat');
     } catch (err) {
