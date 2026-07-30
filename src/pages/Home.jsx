@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  ArrowLeft, LogOut, Search, User, Users, Send, Image, Smile, Phone, Video, 
-  MoreVertical, Loader2, Sun, Moon, Check, CheckCheck, X, MessageSquare
+  ArrowLeft, LogOut, Search, User, Users, Send, Image, Smile, 
+  Loader2, Sun, Moon, Check, CheckCheck, X, MessageSquare
 } from 'lucide-react';
 import { auth, database } from '../firebaseconfig/firebaseConfig';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
@@ -461,15 +461,6 @@ const Home = () => {
                 </div>
 
                 <div className="flex items-center gap-1">
-                  <button className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-xl text-slate-700 dark:text-slate-300">
-                    <Phone size={18} />
-                  </button>
-                  <button className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-xl text-slate-700 dark:text-slate-300">
-                    <Video size={18} />
-                  </button>
-                  <button className="p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-xl text-slate-600 dark:text-slate-400">
-                    <MoreVertical size={18} />
-                  </button>
                 </div>
               </div>
 

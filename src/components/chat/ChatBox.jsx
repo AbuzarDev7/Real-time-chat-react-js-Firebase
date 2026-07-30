@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Image, Smile, MoreVertical, Phone, Video } from 'lucide-react';
+import { Send, Image, Smile } from 'lucide-react';
 import Button from '../ui/Button';
 
 const ChatBox = ({ selectedUser, messages = [], onSendMessage }) => {
@@ -88,9 +88,6 @@ const ChatBox = ({ selectedUser, messages = [], onSendMessage }) => {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <Button variant="ghost" style={{ width: 'auto', padding: '8px' }}><Phone size={20} /></Button>
-          <Button variant="ghost" style={{ width: 'auto', padding: '8px' }}><Video size={20} /></Button>
-          <Button variant="ghost" style={{ width: 'auto', padding: '8px' }}><MoreVertical size={20} /></Button>
         </div>
       </div>
 
